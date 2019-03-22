@@ -14,7 +14,6 @@ with torch.no_grad():
 
         if mean_style is None:
             mean_style = style
-
         else:
             mean_style += style
 
@@ -23,7 +22,6 @@ with torch.no_grad():
     image = generator(torch.randn(50, 512).cuda(), step=5, alpha=1, mean_style=mean_style, style_weight=0.7)
 
     utils.save_image(image, 'sample.png', nrow=10, normalize=True, range=(-1, 1))
-
 
     for j in range(20):
         source_code = torch.randn(9, 512).cuda()
@@ -38,10 +36,10 @@ with torch.no_grad():
 
         for i in range(5):
             image = generator([target_code[i].unsqueeze(0).repeat(9, 1), source_code],
-                            step=5, alpha=1, mean_style=mean_style, style_weight=0.7, mixing_range=(0, 1))
+                              step=5, alpha=1, mean_style=mean_style, style_weight=0.7, mixing_range=(0, 1))
             images.append(target_image[i].unsqueeze(0))
             images.append(image)
 
         images = torch.cat(images, 0)
 
-        utils.save_image(images, f'sample_mixing_{j}.png', nrow=10, normalize=True, range=(-1, 1))
+        utils.save_image(images, f'sample/sample_mixing_{j}.png', nrow=10, normalize=True, range=(-1, 1))
