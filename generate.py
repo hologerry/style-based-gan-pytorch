@@ -4,7 +4,7 @@ from torchvision import utils
 from model import StyledGenerator
 
 generator = StyledGenerator(512).cuda()
-generator.load_state_dict(torch.load('checkpoint/600000.model'))
+generator.load_state_dict(torch.load('checkpoint/style-gan-600k.model'))
 
 mean_style = None
 
@@ -37,7 +37,7 @@ for j in range(20):
 
     for i in range(5):
         image = generator([target_code[i].unsqueeze(0).repeat(9, 1), source_code],
-                        step=5, alpha=1, mean_style=mean_style, style_weight=0.7, mixing_range=(0, 1))
+                          step=5, alpha=1, mean_style=mean_style, style_weight=0.7, mixing_range=(0, 1))
         images.append(target_image[i].unsqueeze(0))
         images.append(image)
 

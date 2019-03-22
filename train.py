@@ -1,16 +1,14 @@
-from tqdm import tqdm
-import numpy as np
-from PIL import Image
 import argparse
 import random
 
 import torch
 from torch import nn, optim
-from torch.autograd import Variable, grad
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms, utils
+from torch.autograd import grad
+from torchvision import utils
+from tqdm import tqdm
 
-from model import StyledGenerator, Discriminator
+from dataloader import sample_data, lsun_loader, celeba_loader
+from model import Discriminator, StyledGenerator
 
 
 def requires_grad(model, flag=True):
@@ -24,46 +22,6 @@ def accumulate(model1, model2, decay=0.999):
 
     for k in par1.keys():
         par1[k].data.mul_(decay).add_(1 - decay, par2[k].data)
-
-
-def lsun_loader(path):
-    def loader(transform):
-        data = datasets.LSUNClass(
-            path, transform=transform,
-            target_transform=lambda x: 0)
-        data_loader = DataLoader(data, shuffle=False, batch_size=batch_size,
-                                 num_workers=4)
-
-        return data_loader
-
-    return loader
-
-
-def celeba_loader(path):
-    def loader(transform):
-        data = datasets.ImageFolder(path, transform=transform)
-        data_loader = DataLoader(data, shuffle=True, batch_size=batch_size,
-                                 num_workers=4)
-
-        return data_loader
-
-    return loader
-
-
-def sample_data(dataloader, image_size=4):
-    transform = transforms.Compose([
-        transforms.Resize(image_size),
-        transforms.CenterCrop(image_size),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    ])
-
-    loader = dataloader(transform)
-
-    return loader
-
-    # for img, label in loader:
-    #     yield img, label
 
 
 def train(generator, discriminator, loader, options):
@@ -119,7 +77,8 @@ def train(generator, discriminator, loader, options):
         real_predict.backward(mone)
 
         if args.mixing and random.random() < 0.9:
-            gen_in11, gen_in12, gen_in21, gen_in22 = torch.randn(4, b_size, code_size, device='cuda').chunk(4, 0)
+            gen_in11, gen_in12, gen_in21, gen_in22 = torch.randn(
+                4, b_size, code_size, device='cuda').chunk(4, 0)
             gen_in1 = [gen_in11.squeeze(0), gen_in12.squeeze(0)]
             gen_in2 = [gen_in21.squeeze(0), gen_in22.squeeze(0)]
 
@@ -140,8 +99,7 @@ def train(generator, discriminator, loader, options):
         x_hat = eps * real_image.data + (1 - eps) * fake_image.data
         x_hat.requires_grad = True
         hat_predict = discriminator(x_hat, step=step, alpha=alpha)
-        grad_x_hat = grad(
-            outputs=hat_predict.sum(), inputs=x_hat, create_graph=True)[0]
+        grad_x_hat = grad(outputs=hat_predict.sum(), inputs=x_hat, create_graph=True)[0]
         grad_penalty = ((grad_x_hat.view(grad_x_hat.size(0), -1)
                          .norm(2, dim=1) - 1)**2).mean()
         grad_penalty = 10 * grad_penalty
@@ -180,7 +138,7 @@ def train(generator, discriminator, loader, options):
                     torch.randn(5 * 10, code_size).cuda(),
                     step=step, alpha=alpha).data.cpu())'''
             images = g_running(torch.randn(5 * 10, code_size).cuda(),
-                                step=step, alpha=alpha).data.cpu()
+                               step=step, alpha=alpha).data.cpu()
 
             utils.save_image(
                 images,
@@ -193,12 +151,9 @@ def train(generator, discriminator, loader, options):
             torch.save(g_running.state_dict(), f'checkpoint/{str(i + 1).zfill(6)}.model')
 
         state_msg = (f'{i + 1}; G: {gen_loss_val:.3f}; D: {disc_loss_val:.3f};'
-             f' Grad: {grad_loss_val:.3f}; Alpha: {alpha:.3f}')
+                     f' Grad: {grad_loss_val:.3f}; Alpha: {alpha:.3f}')
 
         pbar.set_description(state_msg)
-
-
-
 
 
 if __name__ == '__main__':
@@ -209,13 +164,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Progressive Growing of GANs')
 
     parser.add_argument('path', type=str, help='path of specified dataset')
-    parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
-    parser.add_argument('--init-size', default=8, type=int, help='initial image size')
-    parser.add_argument('--mixing', action='store_true', help='use mixing regularization')
+    parser.add_argument('--lr', default=0.001,
+                        type=float, help='learning rate')
+    parser.add_argument('--init-size', default=8, type=int,
+                        help='initial image size')
+    parser.add_argument('--mixing', action='store_true',
+                        help='use mixing regularization')
     parser.add_argument('-d', '--data', default='celeba', type=str,
                         choices=['celeba', 'lsun'],
                         help=('Specify dataset. '
-                            'Currently CelebA and LSUN is supported'))
+                              'Currently CelebA and LSUN is supported'))
 
     args = parser.parse_args()
 
@@ -226,19 +184,19 @@ if __name__ == '__main__':
 
     class_loss = nn.CrossEntropyLoss()
 
-    g_optimizer = optim.Adam(generator.module.generator.parameters(), lr=args.lr, betas=(0.0, 0.99))
-    g_optimizer.add_param_group({'params': generator.module.style.parameters(), 'lr': args.lr * 0.01})
+    g_optimizer = optim.Adam(
+        generator.module.generator.parameters(), lr=args.lr, betas=(0.0, 0.99))
+    g_optimizer.add_param_group(
+        {'params': generator.module.style.parameters(), 'lr': args.lr * 0.01})
     d_optimizer = optim.Adam(
         discriminator.parameters(), lr=args.lr, betas=(0.0, 0.99))
 
-
     accumulate(g_running, generator.module, 0)
 
-
     if args.data == 'celeba':
-        loader = celeba_loader(args.path)
+        loader = celeba_loader(args.path, batch_size)
 
     elif args.data == 'lsun':
-        loader = lsun_loader(args.path)
+        loader = lsun_loader(args.path, batch_size)
 
     train(generator, discriminator, loader, args)
