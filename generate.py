@@ -21,7 +21,7 @@ with torch.no_grad():
 
     image = generator(torch.randn(50, 512).cuda(), step=5, alpha=1, mean_style=mean_style, style_weight=0.7)
 
-    utils.save_image(image, 'sample.png', nrow=10, normalize=True, range=(-1, 1))
+    utils.save_image(image, 'sample/sample.png', nrow=10, normalize=True, range=(-1, 1))
 
     for j in range(20):
         source_code = torch.randn(9, 512).cuda()
