@@ -44,7 +44,7 @@ class EqualLR:
 
 
 def equal_lr(module, name='weight'):
-    """rescale weights after every updates.
+    """Rescale weights after every updates.
     """
     EqualLR.apply(module, name)
 

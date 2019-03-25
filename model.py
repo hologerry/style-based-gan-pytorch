@@ -17,14 +17,16 @@ class Generator(nn.Module):
                                           StyledConvBlock(512, 512, 3, 1),
                                           StyledConvBlock(512, 512, 3, 1),
                                           StyledConvBlock(512, 256, 3, 1),
-                                          StyledConvBlock(256, 128, 3, 1)])
+                                          StyledConvBlock(256, 128, 3, 1),
+                                          StyledConvBlock(128,  64, 3, 1)])
 
         self.to_rgb = nn.ModuleList([EqualConv2d(512, 3, 1),
                                      EqualConv2d(512, 3, 1),
                                      EqualConv2d(512, 3, 1),
                                      EqualConv2d(512, 3, 1),
                                      EqualConv2d(256, 3, 1),
-                                     EqualConv2d(128, 3, 1)])
+                                     EqualConv2d(128, 3, 1),
+                                     EqualConv2d(64,  3, 1)])
 
         # self.blur = Blur()
 
