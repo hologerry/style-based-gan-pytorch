@@ -1,5 +1,6 @@
 import argparse
 import random
+from math import log2
 
 import torch
 from torch import nn, optim
@@ -32,6 +33,7 @@ def train(generator, discriminator, loader, options):
     data_loader = sample_data(loader, 4 * 2 ** step)
     dataset = iter(data_loader)
     pbar = tqdm(range(options.total_iter))
+    max_step = log2(options.fine_size)-2
 
     requires_grad(generator, False)
     requires_grad(discriminator, True)
@@ -55,9 +57,9 @@ def train(generator, discriminator, loader, options):
             iteration = 0
             step += 1
 
-            if step > 6:
+            if step > max_step:
                 alpha = 1
-                step = 6
+                step = max_step
             data_loader = sample_data(loader, 4 * 2 ** step)
             dataset = iter(data_loader)
 
@@ -98,7 +100,7 @@ def train(generator, discriminator, loader, options):
         hat_predict = discriminator(x_hat, step=step, alpha=alpha)
         grad_x_hat = grad(outputs=hat_predict.sum(), inputs=x_hat, create_graph=True)[0]
         grad_penalty = ((grad_x_hat.view(grad_x_hat.size(0), -1).norm(2, dim=1) - 1)**2).mean()
-        grad_penalty = 10 * grad_penalty
+        # grad_penalty = 10 * grad_penalty
         grad_penalty.backward()
         grad_loss_val = grad_penalty.item()
         disc_loss_val = (real_predict - fake_predict).item()
@@ -140,6 +142,7 @@ def train(generator, discriminator, loader, options):
             torch.save(g_running.state_dict(), f'checkpoint/g_running_{str(i + 1).zfill(6)}.model')
             torch.save(generator.state_dict(), f'checkpoint/G_{str(i + 1).zfill(6)}.model')
             torch.save(discriminator.state_dict(), f'checkpoint/D_{str(i + 1).zfill(6)}.model')
+            print()  # used for tqdm log loss history
 
         state_msg = (f'{i + 1}; G: {gen_loss_val:.3f}; D: {disc_loss_val:.3f};'
                      f' Grad: {grad_loss_val:.3f}; Alpha: {alpha:.3f}')
@@ -154,21 +157,21 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=16, type=int, help='batch size')
     parser.add_argument('--n_critic', default=1, type=int, help='how many times the discriminator is trained per G')
 
-    parser.add_argument('--lr', default=0.001,
+    parser.add_argument('--lr', default=0.00001,
                         type=float, help='learning rate')
     parser.add_argument('--init_size', default=8, type=int,
                         help='initial image size')
     parser.add_argument('--fine_size', default=256, type=int,
                         help='target image size')
     parser.add_argument('--alpha_c', default=0.0002, type=float,
-                        help='target image size')
+                        help='coefficient for alpha')
     parser.add_argument('--step_iter', default=10000, type=int,
                         help='iterations between double image resolution')
     parser.add_argument('--total_iter', default=80000, type=int,
                         help='total iterations, total_iter / step_iter > steps')
     parser.add_argument('--sample_freq', default=100, type=int,
                         help='frequency of sample images')
-    parser.add_argument('--checkpoint_freq', default=500, type=int,
+    parser.add_argument('--checkpoint_freq', default=1000, type=int,
                         help='frequency of save checkpoint')
     parser.add_argument('--mixing', action='store_true',
                         help='use mixing regularization')

@@ -56,8 +56,7 @@ class Generator(nn.Module):
                     style_step = style[0]
 
             if i > 0 and step > 0:
-                upsample = F.interpolate(
-                    out, scale_factor=2, mode='bilinear', align_corners=False)
+                upsample = F.interpolate(out, scale_factor=2, mode='bilinear', align_corners=False)
                 # upsample = self.blur(upsample)
                 out = conv(upsample, style_step, noise[i])
 
@@ -103,15 +102,13 @@ class StyledGenerator(nn.Module):
 
             for i in range(step + 1):
                 size = 4 * 2 ** i
-                noise.append(torch.randn(batch, 1, size,
-                                         size, device=input[0].device))
+                noise.append(torch.randn(batch, 1, size, size, device=input[0].device))
 
         if mean_style is not None:
             styles_norm = []
 
             for style in styles:
-                styles_norm.append(
-                    mean_style + style_weight * (style - mean_style))
+                styles_norm.append(mean_style + style_weight * (style - mean_style))
 
             styles = styles_norm
 
