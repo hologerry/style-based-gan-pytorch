@@ -48,7 +48,7 @@ def train(generator, discriminator, loader, options):
     for i in pbar:
         discriminator.zero_grad()
 
-        alpha = min(1, 0.00002 * iteration)
+        alpha = min(1, options.alpha_c * iteration)
 
         if iteration > options.step_iter:
             alpha = 0
@@ -160,6 +160,8 @@ if __name__ == '__main__':
                         help='initial image size')
     parser.add_argument('--fine_size', default=256, type=int,
                         help='target image size')
+    parser.add_argument('--alpha_c', default=0.0002, type=float,
+                        help='target image size')
     parser.add_argument('--step_iter', default=10000, type=int,
                         help='iterations between double image resolution')
     parser.add_argument('--total_iter', default=80000, type=int,
@@ -167,7 +169,7 @@ if __name__ == '__main__':
     parser.add_argument('--sample_freq', default=100, type=int,
                         help='frequency of sample images')
     parser.add_argument('--checkpoint_freq', default=500, type=int,
-                        help='frequency of save')
+                        help='frequency of save checkpoint')
     parser.add_argument('--mixing', action='store_true',
                         help='use mixing regularization')
     parser.add_argument('-d', '--data', default='celeba', type=str,

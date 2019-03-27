@@ -135,7 +135,7 @@ class Discriminator(nn.Module):
                                           ConvBlock(512, 512, 3, 1),
                                           ConvBlock(513, 512, 3, 1, 4, 0)])
 
-        self.from_rgb = nn.ModuleList([EqualConv2d(3, 64, 1),
+        self.from_rgb = nn.ModuleList([EqualConv2d(3, 64,  1),
                                        EqualConv2d(3, 128, 1),
                                        EqualConv2d(3, 256, 1),
                                        EqualConv2d(3, 512, 1),
