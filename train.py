@@ -31,7 +31,7 @@ def train(generator, discriminator, loader, options):
     step = options.init_size // 4 - 1
     data_loader = sample_data(loader, 4 * 2 ** step)
     dataset = iter(data_loader)
-    pbar = tqdm(range(800000))
+    pbar = tqdm(range(options.total_iter))
 
     requires_grad(generator, False)
     requires_grad(discriminator, True)
@@ -50,7 +50,7 @@ def train(generator, discriminator, loader, options):
 
         alpha = min(1, 0.00002 * iteration)
 
-        if iteration > 100000:
+        if iteration > options.step_iter:
             alpha = 0
             iteration = 0
             step += 1
@@ -125,7 +125,7 @@ def train(generator, discriminator, loader, options):
             requires_grad(generator, False)
             requires_grad(discriminator, True)
 
-        if (i + 1) % 100 == 0:
+        if (i + 1) % options.sample_freq == 0:
             # Inference sample during training
             '''images = []
             for _ in range(5):
@@ -137,8 +137,10 @@ def train(generator, discriminator, loader, options):
 
             utils.save_image(images, f'sample/{str(i + 1).zfill(6)}.png', nrow=10, normalize=True, range=(-1, 1))
 
-        if (i + 1) % 10000 == 0:
-            torch.save(g_running.state_dict(), f'checkpoint/{str(i + 1).zfill(6)}.model')
+        if (i + 1) % options.checkpoint_freq == 0:
+            torch.save(g_running.state_dict(), f'checkpoint/g_running_{str(i + 1).zfill(6)}.model')
+            torch.save(generator.state_dict(), f'checkpoint/G_{str(i + 1).zfill(6)}.model')
+            torch.save(discriminator.state_dict(), f'checkpoint/D_{str(i + 1).zfill(6)}.model')
 
         state_msg = (f'{i + 1}; G: {gen_loss_val:.3f}; D: {disc_loss_val:.3f};'
                      f' Grad: {grad_loss_val:.3f}; Alpha: {alpha:.3f}')
@@ -157,6 +159,16 @@ if __name__ == '__main__':
                         type=float, help='learning rate')
     parser.add_argument('--init_size', default=8, type=int,
                         help='initial image size')
+    parser.add_argument('--fine_size', default=256, type=int,
+                        help='target image size')
+    parser.add_argument('--step_iter', default=10000, type=int,
+                        help='iterations between double image resolution')
+    parser.add_argument('--total_iter', default=80000, type=int,
+                        help='total iterations, total_iter / step_iter > steps')
+    parser.add_argument('--sample_freq', default=100, type=int,
+                        help='frequency of sample images')
+    parser.add_argument('--checkpoint_freq', default=500, type=int,
+                        help='frequency of save checkpoint')
     parser.add_argument('--mixing', action='store_true',
                         help='use mixing regularization')
     parser.add_argument('-d', '--data', default='celeba', type=str,
@@ -166,8 +178,10 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    generator = nn.DataParallel(StyledGenerator(args.code_size)).cuda()
-    discriminator = nn.DataParallel(Discriminator()).cuda()
+    generator = nn.DataParallel(StyledGenerator(args.code_size).cuda())
+    # generator = StyledGenerator(args.code_size).cuda()
+    discriminator = nn.DataParallel(Discriminator().cuda())
+    # discriminator = Discriminator().cuda()
     g_running = StyledGenerator(args.code_size).cuda()
     g_running.train(False)
 
