@@ -88,8 +88,7 @@ def train(generator, discriminator, loader, options):
             gen_in2 = gen_in2.squeeze(0)
 
         fake_image = generator(gen_in1, step=step, alpha=alpha)
-        fake_predict = discriminator(
-            fake_image, step=step, alpha=alpha)
+        fake_predict = discriminator(fake_image, step=step, alpha=alpha)
         fake_predict = fake_predict.mean()
         fake_predict.backward(one)
 
@@ -168,7 +167,7 @@ if __name__ == '__main__':
     parser.add_argument('--sample_freq', default=100, type=int,
                         help='frequency of sample images')
     parser.add_argument('--checkpoint_freq', default=500, type=int,
-                        help='frequency of save checkpoint')
+                        help='frequency of save')
     parser.add_argument('--mixing', action='store_true',
                         help='use mixing regularization')
     parser.add_argument('-d', '--data', default='celeba', type=str,

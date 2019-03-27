@@ -127,14 +127,16 @@ class Discriminator(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.progression = nn.ModuleList([ConvBlock(128, 256, 3, 1),
+        self.progression = nn.ModuleList([ConvBlock(64, 128, 3, 1),
+                                          ConvBlock(128, 256, 3, 1),
                                           ConvBlock(256, 512, 3, 1),
                                           ConvBlock(512, 512, 3, 1),
                                           ConvBlock(512, 512, 3, 1),
                                           ConvBlock(512, 512, 3, 1),
                                           ConvBlock(513, 512, 3, 1, 4, 0)])
 
-        self.from_rgb = nn.ModuleList([EqualConv2d(3, 128, 1),
+        self.from_rgb = nn.ModuleList([EqualConv2d(3, 64, 1),
+                                       EqualConv2d(3, 128, 1),
                                        EqualConv2d(3, 256, 1),
                                        EqualConv2d(3, 512, 1),
                                        EqualConv2d(3, 512, 1),
