@@ -1,6 +1,6 @@
 # Style-Based GAN in PyTorch
 
-Implementation of A Style-Based Generator Architecture for Generative Adversarial Networks (https://arxiv.org/abs/1812.04948) in PyTorch
+Implementation of A Style-Based Generator Architecture for Generative Adversarial Networks in PyTorch [paper](https://arxiv.org/abs/1812.04948).
 
 Usage:
 

@@ -20,7 +20,8 @@ def requires_grad(model, flag=True):
 def accumulate(model1, model2, decay=0.999):
     """Calculates running average and save average to g_running.
     """
-    # In progressive gan paper author used running average of generator when infer samples.
+    # In progressive gan paper author used running average of generator
+    # when infer samples.
     par1 = dict(model1.named_parameters())
     par2 = dict(model2.named_parameters())
 
@@ -28,7 +29,8 @@ def accumulate(model1, model2, decay=0.999):
         par1[k].data.mul_(decay).add_(1 - decay, par2[k].data)
 
 
-def train(generator, discriminator, loader, options):
+def train(generator, g_running, g_optimizer, discriminator,
+          d_optimizer, loader, options):
     step = options.init_size // 4 - 1
     data_loader = sample_data(loader, 4 * 2 ** step)
     dataset = iter(data_loader)
@@ -79,13 +81,15 @@ def train(generator, discriminator, loader, options):
         real_predict = real_predict.mean() - 0.001 * (real_predict ** 2).mean()
         real_predict.backward(mone)
 
-        if args.mixing and random.random() < 0.9:
-            gen_in11, gen_in12, gen_in21, gen_in22 = torch.randn(4, b_size, args.code_size, device='cuda').chunk(4, 0)
+        if options.mixing and random.random() < 0.9:
+            gen_in11, gen_in12, gen_in21, gen_in22 = torch.randn(
+                4, b_size, args.code_size, device='cuda').chunk(4, 0)
             gen_in1 = [gen_in11.squeeze(0), gen_in12.squeeze(0)]
             gen_in2 = [gen_in21.squeeze(0), gen_in22.squeeze(0)]
 
         else:
-            gen_in1, gen_in2 = torch.randn(2, b_size, args.code_size, device='cuda').chunk(2, 0)
+            gen_in1, gen_in2 = torch.randn(
+                2, b_size, args.code_size, device='cuda').chunk(2, 0)
             gen_in1 = gen_in1.squeeze(0)
             gen_in2 = gen_in2.squeeze(0)
 
@@ -98,8 +102,11 @@ def train(generator, discriminator, loader, options):
         x_hat = eps * real_image.data + (1 - eps) * fake_image.data
         x_hat.requires_grad = True
         hat_predict = discriminator(x_hat, step=step, alpha=alpha)
-        grad_x_hat = grad(outputs=hat_predict.sum(), inputs=x_hat, create_graph=True)[0]
-        grad_penalty = ((grad_x_hat.view(grad_x_hat.size(0), -1).norm(2, dim=1) - 1)**2).mean()
+        grad_x_hat = grad(outputs=hat_predict.sum(),
+                          inputs=x_hat, create_graph=True)[0]
+        grad_penalty = (
+            (grad_x_hat.view(
+                grad_x_hat.size(0), -1).norm(2, dim=1)-1)**2).mean()
         # grad_penalty = 10 * grad_penalty
         grad_penalty.backward()
         grad_loss_val = grad_penalty.item()
@@ -107,7 +114,7 @@ def train(generator, discriminator, loader, options):
 
         d_optimizer.step()
 
-        if (i + 1) % args.n_critic == 0:
+        if (i + 1) % options.n_critic == 0:
             generator.zero_grad()
 
             requires_grad(generator, True)
@@ -136,16 +143,21 @@ def train(generator, discriminator, loader, options):
             images = g_running(torch.randn(5 * 10, args.code_size).cuda(),
                                step=step, alpha=alpha).data.cpu()
 
-            utils.save_image(images, f'sample/{str(i + 1).zfill(6)}.png', nrow=10, normalize=True, range=(-1, 1))
+            utils.save_image(
+                images, f'sample/{str(i + 1).zfill(6)}.png', nrow=10,
+                normalize=True, range=(-1, 1))
 
         if (i + 1) % options.checkpoint_freq == 0:
-            torch.save(g_running.state_dict(), f'checkpoint/g_running_{str(i + 1).zfill(6)}.model')
-            torch.save(generator.state_dict(), f'checkpoint/G_{str(i + 1).zfill(6)}.model')
-            torch.save(discriminator.state_dict(), f'checkpoint/D_{str(i + 1).zfill(6)}.model')
+            torch.save(g_running.state_dict(),
+                       f'checkpoint/g_running_{str(i + 1).zfill(6)}.model')
+            torch.save(generator.state_dict(),
+                       f'checkpoint/G_{str(i + 1).zfill(6)}.model')
+            torch.save(discriminator.state_dict(),
+                       f'checkpoint/D_{str(i + 1).zfill(6)}.model')
             print()  # used for tqdm log loss history
 
-        state_msg = (f'{i + 1}; G: {gen_loss_val:.3f}; D: {disc_loss_val:.3f};'
-                     f' Grad: {grad_loss_val:.3f}; Alpha: {alpha:.3f}')
+        state_msg = (f'{i + 1}; G: {gen_loss_val:.5f}; D: {disc_loss_val:.5f};'
+                     f' Grad: {grad_loss_val:.5f}; Alpha: {alpha:.5f}')
 
         pbar.set_description(state_msg)
 
@@ -153,9 +165,12 @@ def train(generator, discriminator, loader, options):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Style Based GAN')
 
-    parser.add_argument('--code_size', default=512, type=int, help='latent code size')
-    parser.add_argument('--batch_size', default=16, type=int, help='batch size')
-    parser.add_argument('--n_critic', default=1, type=int, help='how many times the discriminator is trained per G')
+    parser.add_argument('--code_size', default=512,
+                        type=int, help='latent code size')
+    parser.add_argument('--batch_size', default=16,
+                        type=int, help='batch size')
+    parser.add_argument('--n_critic', default=1, type=int,
+                        help='how many times discriminator is trained per G')
 
     parser.add_argument('--lr', default=0.00001,
                         type=float, help='learning rate')
@@ -163,21 +178,22 @@ if __name__ == '__main__':
                         help='initial image size')
     parser.add_argument('--fine_size', default=256, type=int,
                         help='target image size')
-    parser.add_argument('--alpha_c', default=0.0002, type=float,
+    parser.add_argument('--alpha_c', default=0.00004, type=float,
                         help='coefficient for alpha')
-    parser.add_argument('--step_iter', default=10000, type=int,
+    parser.add_argument('--step_iter', default=50000, type=int,
                         help='iterations between double image resolution')
-    parser.add_argument('--total_iter', default=80000, type=int,
-                        help='total iterations, total_iter / step_iter > steps')
-    parser.add_argument('--sample_freq', default=100, type=int,
+    parser.add_argument('--total_iter', default=400000, type=int,
+                        help='total iterations, total_iter/step_iter > steps')
+    parser.add_argument('--sample_freq', default=1000, type=int,
                         help='frequency of sample images')
-    parser.add_argument('--checkpoint_freq', default=1000, type=int,
+    parser.add_argument('--checkpoint_freq', default=5000, type=int,
                         help='frequency of save checkpoint')
     parser.add_argument('--mixing', action='store_true',
                         help='use mixing regularization')
     parser.add_argument('-d', '--data', default='celeba', type=str,
                         choices=['celeba', 'lsun', 'zi'],
-                        help=('Specify dataset. Currently CelebA and LSUN is supported'))
+                        help='Specify dataset.' +
+                        'Currently CelebA and LSUN is supported')
     parser.add_argument('path', type=str, help='path of specified dataset')
 
     args = parser.parse_args()
@@ -195,8 +211,8 @@ if __name__ == '__main__':
         generator.module.generator.parameters(), lr=args.lr, betas=(0.0, 0.99))
     g_optimizer.add_param_group(
         {'params': generator.module.style.parameters(), 'lr': args.lr * 0.01})
-    d_optimizer = optim.Adam(
-        discriminator.parameters(), lr=args.lr, betas=(0.0, 0.99))
+    d_optimizer = optim.Adam(discriminator.parameters(),
+                             lr=args.lr, betas=(0.0, 0.99))
 
     accumulate(g_running, generator.module, 0)
 
@@ -207,4 +223,5 @@ if __name__ == '__main__':
     elif args.data == 'zi':
         loader = zi_loader(args.path, args.batch_size)
 
-    train(generator, discriminator, loader, args)
+    train(generator, g_running, g_optimizer,
+          discriminator, d_optimizer, loader, args)

@@ -7,7 +7,8 @@ def lsun_loader(path, batch_size):
         data = datasets.LSUNClass(
             path, transform=transform,
             target_transform=lambda x: 0)
-        data_loader = DataLoader(data, shuffle=False, batch_size=batch_size, num_workers=8)
+        data_loader = DataLoader(
+            data, shuffle=False, batch_size=batch_size, num_workers=8)
 
         return data_loader
 
@@ -17,7 +18,8 @@ def lsun_loader(path, batch_size):
 def celeba_loader(path, batch_size):
     def loader(transform):
         data = datasets.ImageFolder(path, transform=transform)
-        data_loader = DataLoader(data, shuffle=True, batch_size=batch_size, num_workers=8)
+        data_loader = DataLoader(
+            data, shuffle=True, batch_size=batch_size, num_workers=8)
 
         return data_loader
 
@@ -27,7 +29,8 @@ def celeba_loader(path, batch_size):
 def zi_loader(path, batch_size):
     def loader(transform):
         data = datasets.ImageFolder(path, transform=transform)
-        data_loader = DataLoader(data, shuffle=True, batch_size=batch_size, num_workers=8)
+        data_loader = DataLoader(
+            data, shuffle=True, batch_size=batch_size, num_workers=8)
 
         return data_loader
 

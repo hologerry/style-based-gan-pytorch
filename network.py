@@ -71,7 +71,8 @@ class Blur(nn.Module):
         self.register_buffer('weight', weight)
 
     def forward(self, input):
-        return F.conv2d(input, self.weight.repeat(input.shape[1], 1, 1, 1), padding=1, groups=input.shape[1])
+        return F.conv2d(input, self.weight.repeat(input.shape[1], 1, 1, 1),
+                        padding=1, groups=input.shape[1])
 
 
 class EqualConv2d(nn.Module):

@@ -4,15 +4,16 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from network import (ConvBlock, EqualConv2d, EqualLinear, PixelNorm,
-                     StyledConvBlock)
+from network import (ConvBlock, EqualConv2d, EqualLinear,
+                     PixelNorm, StyledConvBlock)
 
 
 class Generator(nn.Module):
     def __init__(self, code_dim):
         super().__init__()
 
-        self.progression = nn.ModuleList([StyledConvBlock(512, 512, 3, 1, initial=True),
+        self.progression = nn.ModuleList([StyledConvBlock(512, 512, 3, 1,
+                                                          initial=True),
                                           StyledConvBlock(512, 512, 3, 1),
                                           StyledConvBlock(512, 512, 3, 1),
                                           StyledConvBlock(512, 512, 3, 1),
@@ -43,7 +44,8 @@ class Generator(nn.Module):
 
         for i, (conv, to_rgb) in enumerate(zip(self.progression, self.to_rgb)):
             if mixing_range == (-1, -1):
-                if crossover < len(inject_index) and i > inject_index[crossover]:
+                sz = len(inject_index)
+                if crossover < sz and i > inject_index[crossover]:
                     crossover = min(crossover + 1, len(style))
 
                 style_step = style[crossover]
@@ -56,7 +58,8 @@ class Generator(nn.Module):
                     style_step = style[0]
 
             if i > 0 and step > 0:
-                upsample = F.interpolate(out, scale_factor=2, mode='bilinear', align_corners=False)
+                upsample = F.interpolate(
+                    out, scale_factor=2, mode='bilinear', align_corners=False)
                 # upsample = self.blur(upsample)
                 out = conv(upsample, style_step, noise[i])
 
@@ -87,7 +90,8 @@ class StyledGenerator(nn.Module):
 
         self.style = nn.Sequential(*layers)
 
-    def forward(self, input, noise=None, step=0, alpha=-1, mean_style=None, style_weight=0, mixing_range=(-1, -1)):
+    def forward(self, input, noise=None, step=0, alpha=-1, mean_style=None,
+                style_weight=0, mixing_range=(-1, -1)):
         styles = []
         if type(input) not in (list, tuple):
             input = [input]
@@ -102,17 +106,20 @@ class StyledGenerator(nn.Module):
 
             for i in range(step + 1):
                 size = 4 * 2 ** i
-                noise.append(torch.randn(batch, 1, size, size, device=input[0].device))
+                noise.append(torch.randn(batch, 1, size,
+                                         size, device=input[0].device))
 
         if mean_style is not None:
             styles_norm = []
 
             for style in styles:
-                styles_norm.append(mean_style + style_weight * (style - mean_style))
+                styles_norm.append(
+                    mean_style + style_weight * (style - mean_style))
 
             styles = styles_norm
 
-        return self.generator(styles, noise, step, alpha, mixing_range=mixing_range)
+        return self.generator(styles, noise, step, alpha,
+                              mixing_range=mixing_range)
 
     def mean_style(self, input):
         style = self.style(input).mean(0, keepdim=True)
@@ -169,7 +176,8 @@ class Discriminator(nn.Module):
                 if i == step and 0 <= alpha < 1:
                     # skip_rgb = F.avg_pool2d(input, 2)
                     skip_rgb = F.interpolate(
-                        input, scale_factor=0.5, mode='bilinear', align_corners=False)
+                        input, scale_factor=0.5, mode='bilinear',
+                        align_corners=False)
                     skip_rgb = self.from_rgb[index + 1](skip_rgb)
                     out = (1 - alpha) * skip_rgb + alpha * out
 
