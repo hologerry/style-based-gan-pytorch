@@ -49,6 +49,15 @@ def train(generator, g_running, g_optimizer, discriminator,
     mone = one * -1
     iteration = 0
 
+    if options.resume_step > 1:
+        step = options.resume_step
+        g_running = torch.load_state_dict(
+            torch.load('checkpoint/g_running_xxxx.model'))
+        generator = torch.load_state_dict(
+            torch.load('checkpoint/G_xxxx.model'))
+        discriminator = torch.load_state_dict(
+            torch.load('checkpoint/D_xxxx.model'))
+
     for i in pbar:
         discriminator.zero_grad()
 
@@ -107,7 +116,7 @@ def train(generator, g_running, g_optimizer, discriminator,
         grad_penalty = (
             (grad_x_hat.view(
                 grad_x_hat.size(0), -1).norm(2, dim=1)-1)**2).mean()
-        # grad_penalty = 10 * grad_penalty
+        grad_penalty = 5 * grad_penalty
         grad_penalty.backward()
         grad_loss_val = grad_penalty.item()
         disc_loss_val = (real_predict - fake_predict).item()
@@ -172,10 +181,12 @@ if __name__ == '__main__':
     parser.add_argument('--n_critic', default=1, type=int,
                         help='how many times discriminator is trained per G')
 
-    parser.add_argument('--lr', default=0.00001,
+    parser.add_argument('--lr', default=0.0002,
                         type=float, help='learning rate')
     parser.add_argument('--init_size', default=8, type=int,
                         help='initial image size')
+    parser.add_argument('--resume_step', type=input, require=True,
+                        help='initial step for continue train')
     parser.add_argument('--fine_size', default=256, type=int,
                         help='target image size')
     parser.add_argument('--alpha_c', default=0.00004, type=float,
