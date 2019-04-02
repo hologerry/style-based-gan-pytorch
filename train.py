@@ -1,6 +1,6 @@
 import argparse
 import random
-import math
+from math import log2
 
 from tqdm import tqdm
 
@@ -8,10 +8,10 @@ import torch
 from torch import nn, optim
 from torch.nn import functional as F
 from torch.autograd import grad
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms, utils
+from torchvision import datasets, utils
 
 from model import StyledGenerator, Discriminator
+from dataloader import sample_data
 
 
 def requires_grad(model, flag=True):
@@ -27,32 +27,15 @@ def accumulate(model1, model2, decay=0.999):
         par1[k].data.mul_(decay).add_(1 - decay, par2[k].data)
 
 
-def sample_data(dataset, batch_size, image_size=4):
-    transform = transforms.Compose(
-        [
-            transforms.Resize(image_size),
-            transforms.CenterCrop(image_size),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ]
-    )
-
-    dataset.transform = transform
-    loader = DataLoader(dataset, shuffle=True,
-                        batch_size=batch_size, num_workers=16)
-
-    return loader
-
-
 def adjust_lr(optimizer, lr):
     for group in optimizer.param_groups:
         mult = group.get('mult', 1)
         group['lr'] = lr * mult
 
 
-def train(args, dataset, generator, discriminator):
-    step = int(math.log2(args.init_size)) - 2
+def train(args, dataset, generator, g_running,
+          discriminator, g_optimizer, d_optimizer):
+    step = int(log2(args.init_size)) - 2
     resolution = 4 * 2 ** step
     loader = sample_data(
         dataset, args.batch.get(resolution, args.batch_default), resolution
@@ -82,8 +65,8 @@ def train(args, dataset, generator, discriminator):
         if used_sample > args.phase * 2:
             step += 1
 
-            if step > int(math.log2(args.max_size)) - 2:
-                step = int(math.log2(args.max_size)) - 2
+            if step > int(log2(args.max_size)) - 2:
+                step = int(log2(args.max_size)) - 2
 
             else:
                 alpha = 0
@@ -187,7 +170,7 @@ def train(args, dataset, generator, discriminator):
 
         d_optimizer.step()
 
-        if (i + 1) % n_critic == 0:
+        if (i + 1) % args.n_critic == 0:
             generator.zero_grad()
 
             requires_grad(generator, True)
@@ -257,15 +240,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Progressive Growing of GANs')
 
     parser.add_argument('path', type=str, help='path of specified dataset')
-    parser.add_argument(
-        '--n_gpu', type=int, default=4, help='number of gpu used for training'
-    )
-    parser.add_argument(
-        '--phase',
-        type=int,
-        default=60_000,
-        help='number of samples used for each training phases',
-    )
+    parser.add_argument('--n_gpu', type=int, default=4,
+                        help='number of gpu used for training')
+    parser.add_argument('--n_critic', type=int, default=1,
+                        help='number of update D before update G')
     parser.add_argument('--lr', default=0.001,
                         type=float, help='learning rate')
     parser.add_argument('--sched', action='store_true',
@@ -274,8 +252,16 @@ if __name__ == '__main__':
                         help='initial image size')
     parser.add_argument('--max_size', default=1024,
                         type=int, help='max image size')
+    parser.add_argument('--resume_step', default=1, type=int,
+                        help='determiane whether continue train')
     parser.add_argument(
         '--mixing', action='store_true', help='use mixing regularization'
+    )
+    parser.add_argument(
+        '--phase',
+        type=int,
+        default=60_000,
+        help='number of samples used for each training phases',
     )
     parser.add_argument(
         '--loss',
@@ -296,6 +282,24 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    if args.data == 'folder':
+        dataset = datasets.ImageFolder(args.path)
+
+    elif args.data == 'lsun':
+        dataset = datasets.LSUNClass(args.path, target_transform=lambda x: 0)
+
+    if args.sched:
+        args.lr = {128: 0.0015, 256: 0.002, 512: 0.003, 1024: 0.003}
+        args.batch = {4: 512, 8: 256, 16: 128,
+                      32: 64, 64: 32, 128: 32, 256: 32}
+    else:
+        args.lr = {}
+        args.batch = {}
+
+    args.gen_sample = {256: (10, 6), 512: (8, 4), 1024: (4, 2)}
+
+    args.batch_default = 16
+
     generator = nn.DataParallel(StyledGenerator(code_size)).cuda()
     discriminator = nn.DataParallel(Discriminator()).cuda()
     g_running = StyledGenerator(code_size).cuda()
@@ -304,7 +308,7 @@ if __name__ == '__main__':
     class_loss = nn.CrossEntropyLoss()
 
     g_optimizer = optim.Adam(
-        generator.module.generator.parameters(), lr=args.lr, betas=(0.0, 0.99)
+        generator.module.generator.parameters(), lr=args.lr, betas=(0.9, 0.99)
     )
     g_optimizer.add_param_group(
         {
@@ -316,25 +320,15 @@ if __name__ == '__main__':
     d_optimizer = optim.Adam(discriminator.parameters(),
                              lr=args.lr, betas=(0.0, 0.99))
 
+    if args.resume_step > 1:
+        model_dicts = torch.load(
+            f'checkpoint/train_step-{args.resume_step}.model')
+        generator.load_state_dict(model_dicts['generator'])
+        discriminator.load_state_dict(model_dicts['discriminator'])
+        g_optimizer.load_state_dict(model_dicts['g_optimizer'])
+        d_optimizer.load_state_dict(model_dicts['d_optimizer'])
+
     accumulate(g_running, generator.module, 0)
 
-    if args.data == 'folder':
-        dataset = datasets.ImageFolder(args.path)
-
-    elif args.data == 'lsun':
-        dataset = datasets.LSUNClass(args.path, target_transform=lambda x: 0)
-
-    if args.sched:
-        args.lr = {128: 0.0015, 256: 0.002, 512: 0.003, 1024: 0.003}
-        args.batch = {4: 512, 8: 256, 16: 128,
-                      32: 64, 64: 32, 128: 32, 256: 32}
-
-    else:
-        args.lr = {}
-        args.batch = {}
-
-    args.gen_sample = {512: (8, 4), 1024: (4, 2)}
-
-    args.batch_default = 16
-
-    train(args, dataset, generator, discriminator)
+    train(args, dataset, generator, g_running,
+          discriminator, g_optimizer, d_optimizer)

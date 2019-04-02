@@ -12,22 +12,33 @@ class Generator(nn.Module):
     def __init__(self, code_dim):
         super().__init__()
 
-        self.progression = nn.ModuleList([StyledConvBlock(512, 512, 3, 1,
-                                                          initial=True),
-                                          StyledConvBlock(512, 512, 3, 1),
-                                          StyledConvBlock(512, 512, 3, 1),
-                                          StyledConvBlock(512, 512, 3, 1),
-                                          StyledConvBlock(512, 256, 3, 1),
-                                          StyledConvBlock(256, 128, 3, 1),
-                                          StyledConvBlock(128,  64, 3, 1)])
+        self.progression = nn.ModuleList(
+            [
+                StyledConvBlock(512, 512, 3, 1, initial=True),
+                StyledConvBlock(512, 512, 3, 1),
+                StyledConvBlock(512, 512, 3, 1),
+                StyledConvBlock(512, 512, 3, 1),
+                StyledConvBlock(512, 256, 3, 1),
+                StyledConvBlock(256, 128, 3, 1),
+                StyledConvBlock(128, 64, 3, 1),
+                StyledConvBlock(64, 32, 3, 1),
+                StyledConvBlock(32, 16, 3, 1),
+            ]
+        )
 
-        self.to_rgb = nn.ModuleList([EqualConv2d(512, 3, 1),
-                                     EqualConv2d(512, 3, 1),
-                                     EqualConv2d(512, 3, 1),
-                                     EqualConv2d(512, 3, 1),
-                                     EqualConv2d(256, 3, 1),
-                                     EqualConv2d(128, 3, 1),
-                                     EqualConv2d(64,  3, 1)])
+        self.to_rgb = nn.ModuleList(
+            [
+                EqualConv2d(512, 3, 1),
+                EqualConv2d(512, 3, 1),
+                EqualConv2d(512, 3, 1),
+                EqualConv2d(512, 3, 1),
+                EqualConv2d(256, 3, 1),
+                EqualConv2d(128, 3, 1),
+                EqualConv2d(64, 3, 1),
+                EqualConv2d(32, 3, 1),
+                EqualConv2d(16, 3, 1),
+            ]
+        )
 
         # self.blur = Blur()
 
@@ -44,8 +55,8 @@ class Generator(nn.Module):
 
         for i, (conv, to_rgb) in enumerate(zip(self.progression, self.to_rgb)):
             if mixing_range == (-1, -1):
-                sz = len(inject_index)
-                if crossover < sz and i > inject_index[crossover]:
+                if (crossover < len(inject_index) and
+                        i > inject_index[crossover]):
                     crossover = min(crossover + 1, len(style))
 
                 style_step = style[crossover]
@@ -59,7 +70,8 @@ class Generator(nn.Module):
 
             if i > 0 and step > 0:
                 upsample = F.interpolate(
-                    out, scale_factor=2, mode='bilinear', align_corners=False)
+                    out, scale_factor=2, mode='bilinear', align_corners=False
+                )
                 # upsample = self.blur(upsample)
                 out = conv(upsample, style_step, noise[i])
 
@@ -72,6 +84,7 @@ class Generator(nn.Module):
                 if i > 0 and 0 <= alpha < 1:
                     skip_rgb = self.to_rgb[i - 1](upsample)
                     out = (1 - alpha) * skip_rgb + alpha * out
+
                 break
 
         return out
@@ -90,8 +103,16 @@ class StyledGenerator(nn.Module):
 
         self.style = nn.Sequential(*layers)
 
-    def forward(self, input, noise=None, step=0, alpha=-1, mean_style=None,
-                style_weight=0, mixing_range=(-1, -1)):
+    def forward(
+        self,
+        input,
+        noise=None,
+        step=0,
+        alpha=-1,
+        mean_style=None,
+        style_weight=0,
+        mixing_range=(-1, -1),
+    ):
         styles = []
         if type(input) not in (list, tuple):
             input = [input]
@@ -131,21 +152,33 @@ class Discriminator(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.progression = nn.ModuleList([ConvBlock(64, 128, 3, 1),
-                                          ConvBlock(128, 256, 3, 1),
-                                          ConvBlock(256, 512, 3, 1),
-                                          ConvBlock(512, 512, 3, 1),
-                                          ConvBlock(512, 512, 3, 1),
-                                          ConvBlock(512, 512, 3, 1),
-                                          ConvBlock(513, 512, 3, 1, 4, 0)])
+        self.progression = nn.ModuleList(
+            [
+                ConvBlock(16, 32, 3, 1),
+                ConvBlock(32, 64, 3, 1),
+                ConvBlock(64, 128, 3, 1),
+                ConvBlock(128, 256, 3, 1),
+                ConvBlock(256, 512, 3, 1),
+                ConvBlock(512, 512, 3, 1),
+                ConvBlock(512, 512, 3, 1),
+                ConvBlock(512, 512, 3, 1),
+                ConvBlock(513, 512, 3, 1, 4, 0),
+            ]
+        )
 
-        self.from_rgb = nn.ModuleList([EqualConv2d(3, 64,  1),
-                                       EqualConv2d(3, 128, 1),
-                                       EqualConv2d(3, 256, 1),
-                                       EqualConv2d(3, 512, 1),
-                                       EqualConv2d(3, 512, 1),
-                                       EqualConv2d(3, 512, 1),
-                                       EqualConv2d(3, 512, 1)])
+        self.from_rgb = nn.ModuleList(
+            [
+                EqualConv2d(3, 16, 1),
+                EqualConv2d(3, 32, 1),
+                EqualConv2d(3, 64, 1),
+                EqualConv2d(3, 128, 1),
+                EqualConv2d(3, 256, 1),
+                EqualConv2d(3, 512, 1),
+                EqualConv2d(3, 512, 1),
+                EqualConv2d(3, 512, 1),
+                EqualConv2d(3, 512, 1),
+            ]
+        )
 
         # self.blur = Blur()
 
@@ -170,15 +203,18 @@ class Discriminator(nn.Module):
 
             if i > 0:
                 # out = F.avg_pool2d(out, 2)
-                out = F.interpolate(out, scale_factor=0.5,
-                                    mode='bilinear', align_corners=False)
+                out = F.interpolate(
+                    out, scale_factor=0.5, mode='bilinear', align_corners=False
+                )
 
                 if i == step and 0 <= alpha < 1:
                     # skip_rgb = F.avg_pool2d(input, 2)
+                    skip_rgb = self.from_rgb[index + 1](input)
                     skip_rgb = F.interpolate(
-                        input, scale_factor=0.5, mode='bilinear',
-                        align_corners=False)
-                    skip_rgb = self.from_rgb[index + 1](skip_rgb)
+                        skip_rgb, scale_factor=0.5, mode='bilinear',
+                        align_corners=False
+                    )
+
                     out = (1 - alpha) * skip_rgb + alpha * out
 
         out = out.squeeze(2).squeeze(2)

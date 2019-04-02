@@ -119,12 +119,12 @@ class ConvBlock(nn.Module):
         if kernel_size2 is not None:
             kernel2 = kernel_size2
 
-        self.conv = nn.Sequential(EqualConv2d(in_channel, out_channel,
-                                              kernel1, padding=pad1),
-                                  nn.LeakyReLU(0.2),
-                                  EqualConv2d(out_channel, out_channel,
-                                              kernel2, padding=pad2),
-                                  nn.LeakyReLU(0.2))
+        self.conv = nn.Sequential(
+            EqualConv2d(in_channel, out_channel, kernel1, padding=pad1),
+            nn.LeakyReLU(0.2),
+            EqualConv2d(out_channel, out_channel, kernel2, padding=pad2),
+            nn.LeakyReLU(0.2)
+        )
 
     def forward(self, input):
         out = self.conv(input)

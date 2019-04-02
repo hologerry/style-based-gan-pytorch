@@ -15,39 +15,19 @@ def lsun_loader(path, batch_size):
     return loader
 
 
-def celeba_loader(path, batch_size):
-    def loader(transform):
-        data = datasets.ImageFolder(path, transform=transform)
-        data_loader = DataLoader(
-            data, shuffle=True, batch_size=batch_size, num_workers=8)
+def sample_data(dataset, batch_size, image_size=4):
+    transform = transforms.Compose(
+        [
+            transforms.Resize(image_size),
+            transforms.CenterCrop(image_size),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ]
+    )
 
-        return data_loader
-
-    return loader
-
-
-def zi_loader(path, batch_size):
-    def loader(transform):
-        data = datasets.ImageFolder(path, transform=transform)
-        data_loader = DataLoader(
-            data, shuffle=True, batch_size=batch_size, num_workers=8)
-
-        return data_loader
+    dataset.transform = transform
+    loader = DataLoader(dataset, shuffle=True,
+                        batch_size=batch_size, num_workers=16)
 
     return loader
-
-
-def sample_data(dataloader, image_size=4):
-    transform = transforms.Compose([
-        transforms.Resize(image_size),
-        transforms.CenterCrop(image_size),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    ])
-
-    loader = dataloader(transform)
-
-    return loader
-
-    # for img, label in loader:
-    #     yield img, label
