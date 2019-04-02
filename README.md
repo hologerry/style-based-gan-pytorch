@@ -1,10 +1,13 @@
 # Style-Based GAN in PyTorch
 
-Implementation of A Style-Based Generator Architecture for Generative Adversarial Networks in PyTorch [paper](https://arxiv.org/abs/1812.04948).
+Implementation of A Style-Based Generator Architecture for Generative Adversarial Networks [paper](https://arxiv.org/abs/1812.04948) in PyTorch
 
 Usage:
 
-> python train.py -d {celeba} PATH
+```shell
+python train.py --mixing -d {folder} PATH
+python train.py --mixing --loss r1 --sched -d {folder}
+```
 
 ## Sample
 
