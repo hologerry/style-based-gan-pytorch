@@ -1,15 +1,17 @@
 import argparse
 import random
-from math import log2
+import math
+
+from tqdm import tqdm
 
 import torch
 from torch import nn, optim
+from torch.nn import functional as F
 from torch.autograd import grad
-from torchvision import utils
-from tqdm import tqdm
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms, utils
 
-from dataloader import sample_data, lsun_loader, celeba_loader, zi_loader
-from model import Discriminator, StyledGenerator
+from model import StyledGenerator, Discriminator
 
 
 def requires_grad(model, flag=True):
@@ -18,10 +20,6 @@ def requires_grad(model, flag=True):
 
 
 def accumulate(model1, model2, decay=0.999):
-    """Calculates running average and save average to g_running.
-    """
-    # In progressive gan paper author used running average of generator
-    # when infer samples.
     par1 = dict(model1.named_parameters())
     par2 = dict(model2.named_parameters())
 
@@ -29,13 +27,42 @@ def accumulate(model1, model2, decay=0.999):
         par1[k].data.mul_(decay).add_(1 - decay, par2[k].data)
 
 
-def train(generator, g_running, g_optimizer, discriminator,
-          d_optimizer, loader, options):
-    step = options.init_size // 4 - 1
-    data_loader = sample_data(loader, 4 * 2 ** step)
-    dataset = iter(data_loader)
-    pbar = tqdm(range(options.total_iter))
-    max_step = log2(options.fine_size)-2
+def sample_data(dataset, batch_size, image_size=4):
+    transform = transforms.Compose(
+        [
+            transforms.Resize(image_size),
+            transforms.CenterCrop(image_size),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ]
+    )
+
+    dataset.transform = transform
+    loader = DataLoader(dataset, shuffle=True,
+                        batch_size=batch_size, num_workers=16)
+
+    return loader
+
+
+def adjust_lr(optimizer, lr):
+    for group in optimizer.param_groups:
+        mult = group.get('mult', 1)
+        group['lr'] = lr * mult
+
+
+def train(args, dataset, generator, discriminator):
+    step = int(math.log2(args.init_size)) - 2
+    resolution = 4 * 2 ** step
+    loader = sample_data(
+        dataset, args.batch.get(resolution, args.batch_default), resolution
+    )
+    data_loader = iter(loader)
+
+    adjust_lr(g_optimizer, args.lr.get(resolution, 0.001))
+    adjust_lr(d_optimizer, args.lr.get(resolution, 0.001))
+
+    pbar = tqdm(range(3_000_000))
 
     requires_grad(generator, False)
     requires_grad(discriminator, True)
@@ -45,94 +72,137 @@ def train(generator, g_running, g_optimizer, discriminator,
     grad_loss_val = 0
 
     alpha = 0
-    one = torch.FloatTensor([1]).cuda()
-    mone = one * -1
-    iteration = 0
-
-    if options.resume_step > 1:
-        step = options.resume_step
-        g_running = torch.load_state_dict(
-            torch.load('checkpoint/g_running_xxxx.model'))
-        generator = torch.load_state_dict(
-            torch.load('checkpoint/G_xxxx.model'))
-        discriminator = torch.load_state_dict(
-            torch.load('checkpoint/D_xxxx.model'))
+    used_sample = 0
 
     for i in pbar:
         discriminator.zero_grad()
 
-        alpha = min(1, options.alpha_c * iteration)
+        alpha = min(1, 1 / args.phase * (used_sample + 1))
 
-        if iteration > options.step_iter:
-            alpha = 0
-            iteration = 0
+        if used_sample > args.phase * 2:
             step += 1
 
-            if step > max_step:
-                alpha = 1
-                step = max_step
-            data_loader = sample_data(loader, 4 * 2 ** step)
-            dataset = iter(data_loader)
+            if step > int(math.log2(args.max_size)) - 2:
+                step = int(math.log2(args.max_size)) - 2
+
+            else:
+                alpha = 0
+                used_sample = 0
+
+            resolution = 4 * 2 ** step
+
+            loader = sample_data(
+                dataset, args.batch.get(
+                    resolution, args.batch_default), resolution
+            )
+            data_loader = iter(loader)
+
+            torch.save(
+                {
+                    'generator': generator.module.state_dict(),
+                    'discriminator': discriminator.module.state_dict(),
+                    'g_optimizer': g_optimizer.state_dict(),
+                    'd_optimizer': d_optimizer.state_dict(),
+                },
+                f'checkpoint/train_step-{step}.model',
+            )
+
+            adjust_lr(g_optimizer, args.lr.get(resolution, 0.001))
+            adjust_lr(d_optimizer, args.lr.get(resolution, 0.001))
 
         try:
-            real_image, label = next(dataset)
+            real_image, label = next(data_loader)
 
         except (OSError, StopIteration):
-            dataset = iter(data_loader)
-            real_image, label = next(dataset)
+            data_loader = iter(loader)
+            real_image, label = next(data_loader)
 
-        iteration += 1
+        used_sample += real_image.shape[0]
 
         b_size = real_image.size(0)
         real_image = real_image.cuda()
         label = label.cuda()
-        real_predict = discriminator(real_image, step=step, alpha=alpha)
-        real_predict = real_predict.mean() - 0.001 * (real_predict ** 2).mean()
-        real_predict.backward(mone)
 
-        if options.mixing and random.random() < 0.9:
+        if args.loss == 'wgan-gp':
+            real_predict = discriminator(real_image, step=step, alpha=alpha)
+            real_predict = \
+                real_predict.mean() - 0.001 * (real_predict ** 2).mean()
+            (-real_predict).backward()
+
+        elif args.loss == 'r1':
+            real_image.requires_grad = True
+            real_predict = discriminator(real_image, step=step, alpha=alpha)
+            real_predict = F.softplus(-real_predict).mean()
+            real_predict.backward(retain_graph=True)
+
+            grad_real = grad(
+                outputs=real_predict.sum(),
+                inputs=real_image, create_graph=True
+            )[0]
+            grad_penalty = (
+                grad_real.view(grad_real.size(0), -1).norm(2, dim=1) ** 2
+            ).mean()
+            grad_penalty = 10 / 2 * grad_penalty
+            grad_penalty.backward()
+            grad_loss_val = grad_penalty.item()
+
+        if args.mixing and random.random() < 0.9:
             gen_in11, gen_in12, gen_in21, gen_in22 = torch.randn(
-                4, b_size, args.code_size, device='cuda').chunk(4, 0)
+                4, b_size, code_size, device='cuda'
+            ).chunk(4, 0)
             gen_in1 = [gen_in11.squeeze(0), gen_in12.squeeze(0)]
             gen_in2 = [gen_in21.squeeze(0), gen_in22.squeeze(0)]
 
         else:
-            gen_in1, gen_in2 = torch.randn(
-                2, b_size, args.code_size, device='cuda').chunk(2, 0)
+            gen_in1, gen_in2 = \
+                torch.randn(2, b_size, code_size, device='cuda').chunk(2, 0)
             gen_in1 = gen_in1.squeeze(0)
             gen_in2 = gen_in2.squeeze(0)
 
         fake_image = generator(gen_in1, step=step, alpha=alpha)
         fake_predict = discriminator(fake_image, step=step, alpha=alpha)
-        fake_predict = fake_predict.mean()
-        fake_predict.backward(one)
 
-        eps = torch.rand(b_size, 1, 1, 1).cuda()
-        x_hat = eps * real_image.data + (1 - eps) * fake_image.data
-        x_hat.requires_grad = True
-        hat_predict = discriminator(x_hat, step=step, alpha=alpha)
-        grad_x_hat = grad(outputs=hat_predict.sum(),
-                          inputs=x_hat, create_graph=True)[0]
-        grad_penalty = (
-            (grad_x_hat.view(
-                grad_x_hat.size(0), -1).norm(2, dim=1)-1)**2).mean()
-        grad_penalty = 5 * grad_penalty
-        grad_penalty.backward()
-        grad_loss_val = grad_penalty.item()
-        disc_loss_val = (real_predict - fake_predict).item()
+        if args.loss == 'wgan-gp':
+            fake_predict = fake_predict.mean()
+            fake_predict.backward()
+
+            eps = torch.rand(b_size, 1, 1, 1).cuda()
+            x_hat = eps * real_image.data + (1 - eps) * fake_image.data
+            x_hat.requires_grad = True
+            hat_predict = discriminator(x_hat, step=step, alpha=alpha)
+            grad_x_hat = grad(
+                outputs=hat_predict.sum(), inputs=x_hat, create_graph=True
+            )[0]
+            grad_penalty = ((grad_x_hat.view(grad_x_hat.size(0),
+                            -1).norm(2, dim=1) - 1) ** 2).mean()
+            grad_penalty = 10 * grad_penalty
+            grad_penalty.backward()
+            grad_loss_val = grad_penalty.item()
+            disc_loss_val = (real_predict - fake_predict).item()
+
+        elif args.loss == 'r1':
+            fake_predict = F.softplus(fake_predict).mean()
+            fake_predict.backward()
+            disc_loss_val = (real_predict + fake_predict).item()
 
         d_optimizer.step()
 
-        if (i + 1) % options.n_critic == 0:
+        if (i + 1) % n_critic == 0:
             generator.zero_grad()
 
             requires_grad(generator, True)
             requires_grad(discriminator, False)
 
             fake_image = generator(gen_in2, step=step, alpha=alpha)
+
             predict = discriminator(fake_image, step=step, alpha=alpha)
 
-            loss = -predict.mean()
+            if args.loss == 'wgan-gp':
+                loss = -predict.mean()
+
+            elif args.loss == 'r1':
+                loss = F.softplus(-predict).mean()
+
             gen_loss_val = loss.item()
 
             loss.backward()
@@ -142,97 +212,129 @@ def train(generator, g_running, g_optimizer, discriminator,
             requires_grad(generator, False)
             requires_grad(discriminator, True)
 
-        if (i + 1) % options.sample_freq == 0:
-            # Inference sample during training
-            '''images = []
-            for _ in range(5):
-                images.append(g_running(
-                    torch.randn(5 * 10, args.code_size).cuda(),
-                    step=step, alpha=alpha).data.cpu())'''
-            images = g_running(torch.randn(5 * 10, args.code_size).cuda(),
-                               step=step, alpha=alpha).data.cpu()
+        if (i + 1) % 100 == 0:
+            images = []
+
+            gen_i, gen_j = args.gen_sample.get(resolution, (10, 5))
+
+            with torch.no_grad():
+                for _ in range(gen_i):
+                    images.append(
+                        g_running(
+                            torch.randn(gen_j, code_size).cuda(),
+                            step=step, alpha=alpha
+                        ).data.cpu()
+                    )
 
             utils.save_image(
-                images, f'sample/{str(i + 1).zfill(6)}.png', nrow=10,
-                normalize=True, range=(-1, 1))
+                torch.cat(images, 0),
+                f'sample/{str(i + 1).zfill(6)}.png',
+                nrow=gen_i,
+                normalize=True,
+                range=(-1, 1),
+            )
 
-        if (i + 1) % options.checkpoint_freq == 0:
-            torch.save(g_running.state_dict(),
-                       f'checkpoint/g_running_{str(i + 1).zfill(6)}.model')
-            torch.save(generator.state_dict(),
-                       f'checkpoint/G_{str(i + 1).zfill(6)}.model')
-            torch.save(discriminator.state_dict(),
-                       f'checkpoint/D_{str(i + 1).zfill(6)}.model')
-            print()  # used for tqdm log loss history
+        if (i + 1) % 10000 == 0:
+            torch.save(
+                g_running.state_dict(
+                ), f'checkpoint/{str(i + 1).zfill(6)}.model'
+            )
 
-        state_msg = (f'{i + 1}; G: {gen_loss_val:.5f}; D: {disc_loss_val:.5f};'
-                     f' Grad: {grad_loss_val:.5f}; Alpha: {alpha:.5f}')
+        state_msg = (
+            f'Size: {4 * 2 ** step}; G: {gen_loss_val:.3f}; '
+            f'D: {disc_loss_val:.3f}; '
+            f'Grad: {grad_loss_val:.3f}; Alpha: {alpha:.5f}'
+        )
 
         pbar.set_description(state_msg)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Style Based GAN')
+    code_size = 512
+    batch_size = 16
+    n_critic = 1
 
-    parser.add_argument('--code_size', default=512,
-                        type=int, help='latent code size')
-    parser.add_argument('--batch_size', default=16,
-                        type=int, help='batch size')
-    parser.add_argument('--n_critic', default=1, type=int,
-                        help='how many times discriminator is trained per G')
+    parser = argparse.ArgumentParser(description='Progressive Growing of GANs')
 
-    parser.add_argument('--lr', default=0.0002,
+    parser.add_argument('path', type=str, help='path of specified dataset')
+    parser.add_argument(
+        '--n_gpu', type=int, default=4, help='number of gpu used for training'
+    )
+    parser.add_argument(
+        '--phase',
+        type=int,
+        default=60_000,
+        help='number of samples used for each training phases',
+    )
+    parser.add_argument('--lr', default=0.001,
                         type=float, help='learning rate')
+    parser.add_argument('--sched', action='store_true',
+                        help='use lr scheduling')
     parser.add_argument('--init_size', default=8, type=int,
                         help='initial image size')
-    parser.add_argument('--resume_step', type=input, require=True,
-                        help='initial step for continue train')
-    parser.add_argument('--fine_size', default=256, type=int,
-                        help='target image size')
-    parser.add_argument('--alpha_c', default=0.00004, type=float,
-                        help='coefficient for alpha')
-    parser.add_argument('--step_iter', default=50000, type=int,
-                        help='iterations between double image resolution')
-    parser.add_argument('--total_iter', default=400000, type=int,
-                        help='total iterations, total_iter/step_iter > steps')
-    parser.add_argument('--sample_freq', default=1000, type=int,
-                        help='frequency of sample images')
-    parser.add_argument('--checkpoint_freq', default=5000, type=int,
-                        help='frequency of save checkpoint')
-    parser.add_argument('--mixing', action='store_true',
-                        help='use mixing regularization')
-    parser.add_argument('-d', '--data', default='celeba', type=str,
-                        choices=['celeba', 'lsun', 'zi'],
-                        help='Specify dataset.' +
-                        'Currently CelebA and LSUN is supported')
-    parser.add_argument('path', type=str, help='path of specified dataset')
+    parser.add_argument('--max_size', default=1024,
+                        type=int, help='max image size')
+    parser.add_argument(
+        '--mixing', action='store_true', help='use mixing regularization'
+    )
+    parser.add_argument(
+        '--loss',
+        type=str,
+        default='wgan-gp',
+        choices=['wgan-gp', 'r1'],
+        help='class of gan loss',
+    )
+    parser.add_argument(
+        '-d',
+        '--data',
+        default='folder',
+        type=str,
+        choices=['folder', 'lsun'],
+        help=('Specify dataset. '
+              'Currently Image Folder and LSUN is supported'),
+    )
 
     args = parser.parse_args()
 
-    generator = nn.DataParallel(StyledGenerator(args.code_size).cuda())
-    # generator = StyledGenerator(args.code_size).cuda()
-    discriminator = nn.DataParallel(Discriminator().cuda())
-    # discriminator = Discriminator().cuda()
-    g_running = StyledGenerator(args.code_size).cuda()
+    generator = nn.DataParallel(StyledGenerator(code_size)).cuda()
+    discriminator = nn.DataParallel(Discriminator()).cuda()
+    g_running = StyledGenerator(code_size).cuda()
     g_running.train(False)
 
     class_loss = nn.CrossEntropyLoss()
 
     g_optimizer = optim.Adam(
-        generator.module.generator.parameters(), lr=args.lr, betas=(0.0, 0.99))
+        generator.module.generator.parameters(), lr=args.lr, betas=(0.0, 0.99)
+    )
     g_optimizer.add_param_group(
-        {'params': generator.module.style.parameters(), 'lr': args.lr * 0.01})
+        {
+            'params': generator.module.style.parameters(),
+            'lr': args.lr * 0.01,
+            'mult': 0.01,
+        }
+    )
     d_optimizer = optim.Adam(discriminator.parameters(),
                              lr=args.lr, betas=(0.0, 0.99))
 
     accumulate(g_running, generator.module, 0)
 
-    if args.data == 'celeba':
-        loader = celeba_loader(args.path, args.batch_size)
-    elif args.data == 'lsun':
-        loader = lsun_loader(args.path, args.batch_size)
-    elif args.data == 'zi':
-        loader = zi_loader(args.path, args.batch_size)
+    if args.data == 'folder':
+        dataset = datasets.ImageFolder(args.path)
 
-    train(generator, g_running, g_optimizer,
-          discriminator, d_optimizer, loader, args)
+    elif args.data == 'lsun':
+        dataset = datasets.LSUNClass(args.path, target_transform=lambda x: 0)
+
+    if args.sched:
+        args.lr = {128: 0.0015, 256: 0.002, 512: 0.003, 1024: 0.003}
+        args.batch = {4: 512, 8: 256, 16: 128,
+                      32: 64, 64: 32, 128: 32, 256: 32}
+
+    else:
+        args.lr = {}
+        args.batch = {}
+
+    args.gen_sample = {512: (8, 4), 1024: (4, 2)}
+
+    args.batch_default = 16
+
+    train(args, dataset, generator, discriminator)
